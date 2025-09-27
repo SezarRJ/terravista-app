@@ -1,0 +1,449 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// NextAuth.js Models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  role          UserRole  @default(BUYER)
+  plan          UserPlan  @default(FREE)
+  locale        String    @default("en")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts              Account[]
+  sessions              Session[]
+  listings              Listing[]
+  sentMessages          Message[]               @relation("MessageSender")
+  receivedMessages      Message[]               @relation("MessageReceiver")
+  leads                 Lead[]
+  agentLeads            Lead[]                  @relation("AgentLeads")
+  subscriptions         Subscription[]
+  investmentAnalyses    InvestmentAnalysis[]
+  developmentProjects   DevelopmentProject[]
+  consultations         DevelopmentConsultation[]
+  consultantSessions    DevelopmentConsultation[] @relation("ConsultantConsultations")
+  watchlists            InvestmentWatchlist[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Core Models
+model Listing {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  price       Decimal
+  currency    String        @default("USD")
+  type        PropertyType
+  beds        Int?
+  baths       Int?
+  size        Decimal?
+  country     String
+  city        String
+  address     String?
+  latitude    Decimal?
+  longitude   Decimal?
+  features    String[]
+  images      String[]
+  status      ListingStatus @default(ACTIVE)
+  featured    Boolean       @default(false)
+  views       Int           @default(0)
+  ownerId     String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  owner                User                    @relation(fields: [ownerId], references: [id])
+  leads                Lead[]
+  threads              Thread[]
+  investmentOpportunity InvestmentOpportunity?
+
+  @@index([country, city])
+  @@index([type, status])
+  @@index([price])
+}
+
+model Lead {
+  id          String     @id @default(cuid())
+  listingId   String
+  buyerId     String
+  agentId     String?
+  status      LeadStatus @default(NEW)
+  scheduledAt DateTime?
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  listing Listing @relation(fields: [listingId], references: [id])
+  buyer   User    @relation(fields: [buyerId], references: [id])
+  agent   User?   @relation("AgentLeads", fields: [agentId], references: [id])
+  thread  Thread?
+}
+
+model Thread {
+  id             String    @id @default(cuid())
+  leadId         String?   @unique
+  listingId      String?
+  participantIds String[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  lead     Lead?     @relation(fields: [leadId], references: [id])
+  listing  Listing?  @relation(fields: [listingId], references: [id])
+  messages Message[]
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  threadId   String
+  senderId   String
+  receiverId String
+  content    String
+  createdAt  DateTime @default(now())
+
+  thread   Thread @relation(fields: [threadId], references: [id])
+  sender   User   @relation("MessageSender", fields: [senderId], references: [id])
+  receiver User   @relation("MessageReceiver", fields: [receiverId], references: [id])
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  userId                 String
+  stripeCustomerId       String?
+  stripeSubscriptionId   String?
+  plan                   UserPlan
+  status                 SubscriptionStatus
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([stripeSubscriptionId])
+}
+
+// Investment Hub Models
+model InvestmentOpportunity {
+  id              String    @id @default(cuid())
+  listingId       String?   @unique
+  title           String
+  description     String
+  location        String
+  country         String
+  city            String
+  latitude        Decimal?
+  longitude       Decimal?
+  propertyType    String
+  totalValue      Decimal
+  currency        String    @default("USD")
+  aiScore         Decimal
+  riskLevel       RiskLevel
+  expectedROI     Decimal?
+  expectedIRR     Decimal?
+  marketTrend     String?
+  keyMetrics      Json
+  swotAnalysis    Json
+  isVerified      Boolean   @default(false)
+  isFeatured      Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  listing    Listing?              @relation(fields: [listingId], references: [id])
+  analyses   InvestmentAnalysis[]
+  watchlists InvestmentWatchlist[]
+
+  @@index([aiScore])
+  @@index([riskLevel])
+  @@index([country, city])
+}
+
+model InvestmentAnalysis {
+  id                   String       @id @default(cuid())
+  opportunityId        String
+  userId               String
+  analysisType         AnalysisType
+  parameters           Json
+  results              Json
+  financialProjections Json
+  riskAssessment       Json
+  recommendations      String?
+  confidence           Decimal?
+  createdAt            DateTime     @default(now())
+
+  opportunity InvestmentOpportunity @relation(fields: [opportunityId], references: [id])
+  user        User                  @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([analysisType])
+}
+
+model DevelopmentProject {
+  id              String        @id @default(cuid())
+  userId          String
+  name            String
+  description     String?
+  location        String
+  country         String
+  city            String
+  latitude        Decimal?
+  longitude       Decimal?
+  projectType     ProjectType
+  status          ProjectStatus @default(PLANNING)
+  totalBudget     Decimal?
+  currency        String        @default("USD")
+  startDate       DateTime?
+  expectedEndDate DateTime?
+  actualEndDate   DateTime?
+  landArea        Decimal?
+  buildableArea   Decimal?
+  unitMix         Json
+  marketAnalysis  Json
+  financialModel  Json
+  timeline        Json
+  risks           Json
+  documents       String[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user          User                      @relation(fields: [userId], references: [id])
+  milestones    ProjectMilestone[]
+  consultations DevelopmentConsultation[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model ProjectMilestone {
+  id           String          @id @default(cuid())
+  projectId    String
+  title        String
+  description  String?
+  dueDate      DateTime
+  completedAt  DateTime?
+  status       MilestoneStatus @default(PENDING)
+  budget       Decimal?
+  actualCost   Decimal?
+  dependencies String[]
+  createdAt    DateTime        @default(now())
+
+  project DevelopmentProject @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model DevelopmentConsultation {
+  id           String             @id @default(cuid())
+  projectId    String
+  userId       String
+  consultantId String?
+  type         ConsultationType
+  status       ConsultationStatus @default(REQUESTED)
+  description  String
+  requirements Json?
+  deliverables Json?
+  cost         Decimal?
+  currency     String             @default("USD")
+  scheduledAt  DateTime?
+  completedAt  DateTime?
+  results      Json?
+  documents    String[]
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  project    DevelopmentProject @relation(fields: [projectId], references: [id])
+  user       User               @relation(fields: [userId], references: [id])
+  consultant User?              @relation("ConsultantConsultations", fields: [consultantId], references: [id])
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([status])
+}
+
+model InvestmentWatchlist {
+  id            String   @id @default(cuid())
+  userId        String
+  opportunityId String
+  notes         String?
+  alertSettings Json?
+  createdAt     DateTime @default(now())
+
+  user        User                  @relation(fields: [userId], references: [id])
+  opportunity InvestmentOpportunity @relation(fields: [opportunityId], references: [id])
+
+  @@unique([userId, opportunityId])
+}
+
+model MarketData {
+  id           String   @id @default(cuid())
+  country      String
+  city         String?
+  region       String?
+  propertyType String
+  dataType     String
+  value        Decimal
+  currency     String   @default("USD")
+  period       String
+  source       String
+  createdAt    DateTime @default(now())
+
+  @@index([country, city])
+  @@index([propertyType])
+  @@index([dataType, period])
+}
+
+// Enums
+enum UserRole {
+  BUYER
+  SELLER
+  AGENT
+  ADMIN
+}
+
+enum UserPlan {
+  FREE
+  PRO
+  ELITE
+}
+
+enum PropertyType {
+  APARTMENT
+  VILLA
+  HOUSE
+  LAND
+  COMMERCIAL
+  OFFICE
+}
+
+enum ListingStatus {
+  DRAFT
+  ACTIVE
+  SOLD
+  RENTED
+  INACTIVE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  VIEWING
+  OFFER
+  CLOSED
+  LOST
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  INCOMPLETE
+  PAST_DUE
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+}
+
+enum AnalysisType {
+  ROI_ANALYSIS
+  IRR_ANALYSIS
+  CASH_FLOW
+  MARKET_COMPARISON
+  RISK_ASSESSMENT
+  SCENARIO_MODELING
+  SWOT_ANALYSIS
+}
+
+enum ProjectType {
+  RESIDENTIAL
+  COMMERCIAL
+  MIXED_USE
+  INDUSTRIAL
+  LAND_DEVELOPMENT
+  RENOVATION
+}
+
+enum ProjectStatus {
+  PLANNING
+  DESIGN
+  PERMITTING
+  CONSTRUCTION
+  MARKETING
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  DELAYED
+  CANCELLED
+}
+
+enum ConsultationType {
+  MARKET_ANALYSIS
+  FINANCIAL_PLANNING
+  ARCHITECTURAL_DESIGN
+  ENGINEERING_REVIEW
+  LEGAL_CONSULTATION
+  PROJECT_MANAGEMENT
+  INVESTMENT_STRATEGY
+}
+
+enum ConsultationStatus {
+  REQUESTED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
